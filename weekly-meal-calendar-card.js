@@ -12,7 +12,7 @@
  *
  */
 
-// version 0.1.7
+// version 0.1.8
 class WeeklyMealCalendarCard extends HTMLElement {
   constructor() {
     super();
@@ -20,6 +20,8 @@ class WeeklyMealCalendarCard extends HTMLElement {
     this._config = null;
     this._events = {};
     this._fetching = false;
+    this._lastFetchKey = null;
+    this._lastFetchTime = 0;
     this.attachShadow({ mode: 'open' });
   }
 
@@ -28,11 +30,65 @@ class WeeklyMealCalendarCard extends HTMLElement {
       throw new Error('You must define a calendar entity');
     }
     this._config = config;
+    // Default to 7 days if not specified
+    this._days = config.days || 7;
+    // Force a re-fetch when config changes
+    this._lastFetchKey = null;
+  }
+
+  static getStubConfig() {
+    return {
+      calendar: '',
+      days: 7,
+    };
+  }
+
+  static getConfigForm() {
+    return {
+      schema: [
+        {
+          name: 'calendar',
+          required: true,
+          selector: {
+            entity: {
+              domain: 'calendar',
+              multiple: false
+            }
+          }
+        },
+        {
+          name: 'days',
+          selector: {
+            number: {
+              min: 1,
+              max: 365,
+              step: 1,
+              unit_of_measurement: 'days'
+            }
+          }
+        }
+      ],
+      computeLabel: (schema) => {
+        if (schema.name === 'calendar') return 'Calendar Entity';
+        if (schema.name === 'days') return 'Number of Days';
+        return undefined;
+      }
+    };
   }
 
   set hass(hass) {
     this._hass = hass;
-    this._fetchEvents();
+    // Only fetch if configuration has changed or enough time has passed
+    const fetchKey = `${this._config?.calendar}:${this._days}`;
+    const now = Date.now();
+    const timeSinceLastFetch = now - this._lastFetchTime;
+    
+    // Fetch if this is a new config, or if at least 30 seconds have passed since last fetch
+    if (fetchKey !== this._lastFetchKey || timeSinceLastFetch > 30000) {
+      this._lastFetchKey = fetchKey;
+      this._lastFetchTime = now;
+      this._fetchEvents();
+    }
   }
 
   async _fetchEvents() {
@@ -43,7 +99,7 @@ class WeeklyMealCalendarCard extends HTMLElement {
     const entity = this._config.calendar;
     const start = new Date();
     const end = new Date();
-    end.setDate(end.getDate() + 6);
+    end.setDate(end.getDate() + (this._days - 1));
 
     const params = new URLSearchParams({
       start: start.toISOString(),
@@ -139,7 +195,7 @@ class WeeklyMealCalendarCard extends HTMLElement {
     `;
     root.appendChild(style);
 
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < this._days; i++) {
       const d = new Date();
       d.setDate(d.getDate() + i);
       const dayStr = d.toISOString().split('T')[0];
@@ -207,3 +263,11 @@ class WeeklyMealCalendarCard extends HTMLElement {
 }
 
 customElements.define('weekly-meal-calendar-card', WeeklyMealCalendarCard);
+
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: 'weekly-meal-calendar-card',
+  name: 'Weekly Meal Calendar',
+  preview: false,
+  description: 'A calendar card showing events for the next N days with add/edit buttons'
+});

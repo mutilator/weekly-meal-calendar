@@ -33,12 +33,28 @@ and adding the resource automatically.
 
 ## Usage
 
-Add the card in Lovelace (UI or YAML):
+### Via UI (Recommended)
+
+1. Open Lovelace in edit mode
+2. Click "Add card"
+3. Search for "Weekly Meal Calendar Card"
+4. Click on it and configure via the visual editor:
+   - Select your calendar entity from the dropdown
+   - Set the number of days to display
+5. Click "Save"
+
+### Via YAML
 
 ```yaml
 - type: custom:weekly-meal-calendar-card
-  calendar: calendar.family_meals  # required unless you use the UI to pick one
+  calendar: calendar.family_meals  # required
+  days: 7  # optional, defaults to 7
 ```
+
+### Configuration options:
+
+- `calendar` (required): The calendar entity to display events from
+- `days` (optional): Number of days to show. Defaults to 7. Set to any positive integer (e.g., 3 for 3 days, 14 for 2 weeks)
 
 If you have more than one calendar you can specify which one in the `calendar`
 option. The card will:
