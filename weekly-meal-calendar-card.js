@@ -12,7 +12,7 @@
  *
  */
 
-// version 0.1.8
+// version 0.1.9
 class WeeklyMealCalendarCard extends HTMLElement {
   constructor() {
     super();
@@ -91,15 +91,24 @@ class WeeklyMealCalendarCard extends HTMLElement {
     }
   }
 
+  // helper to format a Date object into LocaI YYYY-MM-DD string
+  _localDateString(d) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
   async _fetchEvents() {
     if (!this._hass || !this._config || this._fetching) {
       return;
     }
     this._fetching = true;
     const entity = this._config.calendar;
+
+    // build start/end based on local midnight to avoid UTC offsets truncating days
     const start = new Date();
-    const end = new Date();
-    end.setDate(end.getDate() + (this._days - 1));
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + this._days);
 
     const params = new URLSearchParams({
       start: start.toISOString(),
@@ -114,17 +123,22 @@ class WeeklyMealCalendarCard extends HTMLElement {
       this._events = {};
       for (const ev of events) {
         let dayStr;
+        // determine start time in a way that respects browser local timezone
         if (typeof ev.start === 'string') {
-          // ISO string format: "2026-02-26" or "2026-02-26T10:00:00"
-          dayStr = ev.start.split('T')[0];
+          // ISO string: could be just date or full datetime
+          const dt = new Date(ev.start);
+          dayStr = this._localDateString(dt);
+          // if the original string was only the date part, keep it unchanged
+          if (/^\d{4}-\d{2}-\d{2}$/.test(ev.start)) {
+            dayStr = ev.start;
+          }
         } else if (ev.start instanceof Date) {
-          // Date object - convert to YYYY-MM-DD
-          dayStr = ev.start.toISOString().split('T')[0];
+          // Date object - convert using local representation
+          dayStr = this._localDateString(ev.start);
         } else if (typeof ev.start === 'object' && ev.start.dateTime) {
-          // Possible format: { dateTime: "2026-02-26T10:00:00", ... }
-          dayStr = ev.start.dateTime.split('T')[0];
+          dayStr = this._localDateString(new Date(ev.start.dateTime));
         } else if (typeof ev.start === 'object' && ev.start.date) {
-          // Possible format: { date: "2026-02-26", ... }
+          // all-day events provide a local date already
           dayStr = ev.start.date;
         } else {
           console.warn('Unknown start format:', ev.start);
@@ -198,7 +212,7 @@ class WeeklyMealCalendarCard extends HTMLElement {
     for (let i = 0; i < this._days; i++) {
       const d = new Date();
       d.setDate(d.getDate() + i);
-      const dayStr = d.toISOString().split('T')[0];
+      const dayStr = this._localDateString(d);
       const ev = this._events[dayStr];
 
       const row = document.createElement('div');
