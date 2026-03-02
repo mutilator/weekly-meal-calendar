@@ -8,6 +8,14 @@ full-day event on the selected calendar entity. It displays the current day and 
 > calendar integration installed and active. Creating new events requires only the standard 
 > Home Assistant calendar integration.
 
+# Configuration
+
+![Configuration](img/config.png)
+
+# Card
+
+![Card](img/card.png)
+
 ## Installation
 
 ### HACS (recommended)
@@ -25,10 +33,10 @@ and adding the resource automatically.
 
 ### Manual installation
 
-1. Download `weekly-meal-calendar-card.js` from this repository
+1. Download `dist/weekly-meal-calendar.js` from this repository
 2. Copy it to your Home Assistant `config/www/` directory
 3. Add the resource in the UI via **Settings > Dashboards > Resources**
-   with the URL `/local/weekly-meal-calendar-card.js`
+   with the URL `/local/weekly-meal-calendar.js`
 4. Refresh your browser
 
 ## Usage
@@ -46,7 +54,7 @@ and adding the resource automatically.
 ### Via YAML
 
 ```yaml
-- type: custom:weekly-meal-calendar-card
+- type: custom:weekly-meal-calendar
   calendar: calendar.family_meals  # required
   days: 7  # optional, defaults to 7
 ```
@@ -80,7 +88,7 @@ option. The card will:
 
 ## Development
 
-The only source file is `weekly-meal-calendar-card.js` at the repository root.
+The only source file is `weekly-meal-calendar.js` at the repository root.
 You can edit it directly – no build step is required. When testing locally
 place it in `config/www` or use the `dev` folder in HACS.
 
