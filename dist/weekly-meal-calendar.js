@@ -12,7 +12,7 @@
  *
  */
 
-// version 0.1.9
+// version 0.1.10
 class WeeklyMealCalendarCard extends HTMLElement {
   constructor() {
     super();
@@ -261,9 +261,10 @@ class WeeklyMealCalendarCard extends HTMLElement {
         throw err;
       }
     } else {
-      const nextDay = new Date(dayStr);
-      nextDay.setDate(nextDay.getDate() + 1);
-      const endDateStr = nextDay.toISOString().split('T')[0];
+      // Parse dayStr as local date (YYYY-MM-DD format)
+      const [year, month, day] = dayStr.split('-').map(Number);
+      const nextDay = new Date(year, month - 1, day + 1);
+      const endDateStr = this._localDateString(nextDay);
       
       await this._hass.callService('calendar', 'create_event', {
         entity_id: entity,

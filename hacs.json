@@ -1,6 +1,6 @@
 {
   "name": "Weekly Meal Calendar Card",
   "render_readme": true,
-  "filename": "weekly-meal-calendar-card.js",
+  "filename": "dist/weekly-meal-calendar.js",
   "homeassistant": "2024.1.0"
 }
