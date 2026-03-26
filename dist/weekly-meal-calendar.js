@@ -29,6 +29,11 @@ class WeeklyMealCalendarCard extends HTMLElement {
     if (!config || !config.calendar) {
       throw new Error('You must define a calendar entity');
     }
+
+    if (config.todo_list && typeof config.todo_list !== 'string') {
+      throw new Error('todo_list must be a todo entity id like todo.list_name');
+    }
+
     this._config = config;
     // Default to 7 days if not specified
     this._days = config.days || 7;
@@ -40,6 +45,7 @@ class WeeklyMealCalendarCard extends HTMLElement {
     return {
       calendar: '',
       days: 7,
+      todo_list: '',
     };
   }
 
@@ -66,11 +72,21 @@ class WeeklyMealCalendarCard extends HTMLElement {
               unit_of_measurement: 'days'
             }
           }
+        },
+        {
+          name: 'todo_list',
+          selector: {
+            entity: {
+              domain: 'todo',
+              multiple: false,
+            }
+          }
         }
       ],
       computeLabel: (schema) => {
         if (schema.name === 'calendar') return 'Calendar Entity';
         if (schema.name === 'days') return 'Number of Days';
+        if (schema.name === 'todo_list') return 'Todo List Entity';
         return undefined;
       }
     };
@@ -233,8 +249,182 @@ class WeeklyMealCalendarCard extends HTMLElement {
       btn.addEventListener('click', () => this._editDay(dayStr, ev));
       row.appendChild(btn);
 
+      const randomBtn = document.createElement('button');
+      randomBtn.textContent = '🎲';
+      randomBtn.title = 'Pick random meal from todo_list';
+      randomBtn.style.marginLeft = '8px';
+      randomBtn.addEventListener('click', () => this._setRandomDay(dayStr, ev));
+      row.appendChild(randomBtn);
+
       root.appendChild(row);
     }
+  }
+
+  async _getRandomTodoItem() {
+    const todoEntityId = this._config?.todo_list;
+    if (!todoEntityId || !this._hass || !this._hass.states) {
+      return null;
+    }
+
+    const todoState = this._hass.states[todoEntityId];
+    if (!todoState) {
+      console.warn('Todo list entity not found:', todoEntityId);
+      return null;
+    }
+
+    let items =
+      todoState.attributes?.items ||
+      todoState.attributes?.entries ||
+      todoState.attributes?.tasks ||
+      [];
+
+    if (!Array.isArray(items)) {
+      items = [];
+    }
+
+    // Fallback to websocket to fetch full todo list items from the backend.
+    if (!items.length) {
+      try {
+        const wsResult = await this._hass.callWS({
+          type: 'todo/item/list',
+          entity_id: todoEntityId,
+        });
+        if (wsResult?.items && Array.isArray(wsResult.items)) {
+          items = wsResult.items;
+        }
+      } catch (err) {
+        console.warn('Todo list websocket item lookup failed', todoEntityId, err);
+      }
+    }
+
+    // Fallback to the get_items service (supports_response) for some todo integrations.
+    if (!items.length) {
+      try {
+        const svcResult = await this._hass.callService('todo', 'get_items', {
+          entity_id: todoEntityId,
+        });
+        if (Array.isArray(svcResult)) {
+          items = svcResult;
+        } else if (svcResult?.items && Array.isArray(svcResult.items)) {
+          items = svcResult.items;
+        } else if (svcResult?.result && Array.isArray(svcResult.result)) {
+          items = svcResult.result;
+        }
+      } catch (err) {
+        console.warn('Todo get_items service call failed', todoEntityId, err);
+      }
+    }
+
+    // For some custom todo entity implementations, state may contain a newline-separated list or JSON.
+    if (!items.length && typeof todoState.state === 'string') {
+      const candidate = todoState.state.trim();
+      if (candidate.startsWith('[') || candidate.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(candidate);
+          if (Array.isArray(parsed)) {
+            items = parsed;
+          }
+        } catch (e) {
+          // ignore; not JSON
+        }
+      } else if (candidate.includes('\n')) {
+        items = candidate.split('\n').map((v) => v.trim()).filter(Boolean);
+      } else if (candidate) {
+        items = candidate.split(',').map((v) => v.trim()).filter(Boolean);
+      }
+    }
+
+    const usable = (items || []).filter(Boolean);
+    if (usable.length === 0) {
+      console.warn('No todo items found for', todoEntityId, 'raw', todoState.attributes, 'state', todoState.state);
+      return null;
+    }
+
+    const i = Math.floor(Math.random() * usable.length);
+    const entry = usable[i];
+
+    const maybeText = (val) => {
+      if (typeof val === 'string' && val.trim()) {
+        return val.trim();
+      }
+      if (typeof val === 'number') {
+        return String(val);
+      }
+      return null;
+    };
+
+    if (typeof entry === 'string') {
+      return entry;
+    }
+
+    if (entry && typeof entry === 'object') {
+      const candidates = [
+        entry.summary,
+        entry.label,
+        entry.title,
+        entry.text,
+        entry.task,
+        entry.name,
+        entry.value,
+        entry.item,
+        entry.description,
+      ];
+
+      for (const candidate of candidates) {
+        const text = maybeText(candidate);
+        if (text) {
+          if (candidate === entry.name && typeof entry.name === 'number') {
+            continue;
+          }
+          return text;
+        }
+      }
+    }
+
+    return String(entry);
+  }
+
+  async _setRandomDay(dayStr, existingEvent) {
+    const randomMeal = await this._getRandomTodoItem();
+    if (!randomMeal) {
+      window.alert('No todo_list items available; define todo_list with at least one entry.');
+      return;
+    }
+    await this._writeDay(dayStr, existingEvent, randomMeal);
+  }
+
+  async _writeDay(dayStr, existingEvent, summaryValue) {
+    if (!summaryValue) {
+      return;
+    }
+    const entity = this._config.calendar;
+    if (existingEvent) {
+      const eventId = existingEvent.uid || existingEvent.eid || existingEvent.id;
+      try {
+        await this._hass.callService('clockwork', 'update_event', {
+          calendar_id: entity,
+          event_id: eventId,
+          event: {
+            summary: summaryValue,
+          },
+        });
+      } catch (err) {
+        console.error('Error updating event:', err);
+        throw err;
+      }
+    } else {
+      const [year, month, day] = dayStr.split('-').map(Number);
+      const nextDay = new Date(year, month - 1, day + 1);
+      const endDateStr = this._localDateString(nextDay);
+
+      await this._hass.callService('calendar', 'create_event', {
+        entity_id: entity,
+        summary: summaryValue,
+        start_date: dayStr,
+        end_date: endDateStr,
+      });
+    }
+    this._fetchEvents();
   }
 
   async _editDay(dayStr, existingEvent) {
@@ -244,36 +434,7 @@ class WeeklyMealCalendarCard extends HTMLElement {
       return;
     }
 
-    const entity = this._config.calendar;
-    if (existingEvent) {
-      const eventId = existingEvent.uid || existingEvent.eid || existingEvent.id;
-      try {
-        // Use clockwork.update_event service
-        await this._hass.callService('clockwork', 'update_event', {
-          calendar_id: entity,
-          event_id: eventId,
-          event: {
-            summary: newSummary,
-          },
-        });
-      } catch (err) {
-        console.error('Error updating event:', err);
-        throw err;
-      }
-    } else {
-      // Parse dayStr as local date (YYYY-MM-DD format)
-      const [year, month, day] = dayStr.split('-').map(Number);
-      const nextDay = new Date(year, month - 1, day + 1);
-      const endDateStr = this._localDateString(nextDay);
-      
-      await this._hass.callService('calendar', 'create_event', {
-        entity_id: entity,
-        summary: newSummary,
-        start_date: dayStr,
-        end_date: endDateStr,
-      });
-    }
-    this._fetchEvents();
+    await this._writeDay(dayStr, existingEvent, newSummary);
   }
 }
 
